@@ -1,0 +1,42 @@
+name: k6 performance
+
+on:
+  schedule:
+    - cron: '0 4 * * 1' # weekly smoke, Monday
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Load profile to run
+        type: choice
+        options: [smoke, load, stress, spike]
+        default: smoke
+      max_vus:
+        description: Virtual-user ceiling (keep low against public demo apps)
+        default: '10'
+
+jobs:
+  k6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PROFILE: ${{ inputs.profile || 'smoke' }}
+      MAX_VUS: ${{ inputs.max_vus || '10' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run ${{ env.PROFILE }} profile
+        run: |
+          mkdir -p results && chmod 777 results
+          docker run --rm -v "$PWD:/work" -w /work \
+            -e PERF_BASE_URL -e MAX_VUS -e QP_TOKEN \
+            grafana/k6:latest run \
+            --summary-export=results/k6-${PROFILE}.json \
+            k6/${PROFILE}.js
+
+      - name: Upload summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-${{ env.PROFILE }}
+          path: results/
+          retention-days: 30
