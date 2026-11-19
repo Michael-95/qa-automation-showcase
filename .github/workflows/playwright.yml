@@ -1,0 +1,56 @@
+name: Playwright
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 3 * * *' # nightly, catches drift in the target apps
+  workflow_dispatch:
+
+concurrency:
+  group: playwright-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run typecheck
+
+  test:
+    needs: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [anonymous, chromium, firefox, mobile, a11y, api]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+
+      - name: Install browsers
+        if: matrix.project != 'api'
+        run: npx playwright install --with-deps chromium ${{ matrix.project == 'firefox' && 'firefox' || '' }}
+
+      - name: Run ${{ matrix.project }}
+        run: npx playwright test --project=${{ matrix.project }}
+
+      - name: Upload report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.project }}
+          path: |
+            playwright-report/
+            results/
+          retention-days: 14
